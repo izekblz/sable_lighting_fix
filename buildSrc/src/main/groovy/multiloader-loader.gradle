@@ -68,6 +68,11 @@ publishMods {
         accessToken = providers.environmentVariable("GITHUB_TOKEN")
         tagName = "mc$minecraft_version-$project.version"
         commitish = "main"
+
+        file.unset()
+        file.unsetConvention()
+
+        allowEmptyFiles = true
     }
 
     modrinth {
