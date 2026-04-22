@@ -96,4 +96,22 @@ public class EntitySubLevelUtil {
     public static boolean hasCustomEntityOrientation(final Entity entity) {
         return false;
     }
+
+    /**
+     * @deprecated Use {@link dev.ryanhcode.sable.Sable#HELPER} instead. Kept for binary compatibility
+     * with mods compiled against older Sable versions (e.g. Simulated / Create Aeronautics).
+     */
+    @Deprecated
+    public static Vec3 getEyePositionInterpolated(final Entity entity, final float partialTicks) {
+        return Sable.HELPER.getEyePositionInterpolated(entity, partialTicks);
+    }
+
+    /**
+     * @deprecated Use {@link dev.ryanhcode.sable.Sable#HELPER} instead. Kept for binary compatibility.
+     */
+    @Deprecated
+    @Nullable
+    public static SubLevel getTrackingSubLevel(final Entity entity) {
+        return Sable.HELPER.getTrackingSubLevel(entity);
+    }
 }
