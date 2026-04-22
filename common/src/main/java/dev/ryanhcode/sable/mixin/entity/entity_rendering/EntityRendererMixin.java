@@ -35,16 +35,36 @@ public abstract class EntityRendererMixin {
     @Final
     protected EntityRenderDispatcher entityRenderDispatcher;
 
+    @Shadow
+    protected abstract int getBlockLightLevel(Entity entity, BlockPos blockPos);
+
+    @Shadow
+    protected abstract int getSkyLightLevel(Entity entity, BlockPos blockPos);
+
     /**
-     * @author RyanH
-     * @reason Account for sub-levels with sky lighting
+     * Account for sub-level sky lighting and corrected probe position for entities in sub-levels,
+     * while preserving injections from other mods (e.g. dynamic light mods) into getBlockLightLevel.
+     *
+     * Previously this was an @Overwrite which called private helpers directly, bypassing any
+     * mod injections into getBlockLightLevel. Now we delegate to getBlockLightLevel and
+     * getSkyLightLevel so other mods' @ModifyReturnValue/@Inject hooks still fire.
      */
-    @Overwrite
-    public final int getPackedLightCoords(final Entity arg, final float f) {
+    @Inject(method = "getPackedLightCoords", at = @At("HEAD"), cancellable = true)
+    public void sable$getPackedLightCoords(final Entity arg, final float f, final CallbackInfoReturnable<Integer> cir) {
         final Vec3 lightProbeOffset = arg.getLightProbePosition(f).subtract(arg.getEyePosition(f));
         final Vector3d lightProbePosition = JOMLConversion.toJOML(Sable.HELPER.getEyePositionInterpolated(arg, f)).add(lightProbeOffset.x, lightProbeOffset.y, lightProbeOffset.z);
         final BlockPos blockpos = BlockPos.containing(lightProbePosition.x, lightProbePosition.y, lightProbePosition.z);
-        return LightTexture.pack(sable$getSubLevelAccountedBlockLight(arg.level(), LightLayer.BLOCK, blockpos, lightProbePosition), sable$getSubLevelAccountedLight(arg.level(), LightLayer.SKY, blockpos, lightProbePosition));
+
+        // Only override if the entity is actually in or near a sub-level, to avoid
+        // impacting performance for normal entities and to minimise interference with other mods.
+        final boolean nearSubLevel = Sable.HELPER.getAllIntersecting(arg.level(), new BoundingBox3d(blockpos)).iterator().hasNext();
+        if (!nearSubLevel) return;
+
+        // Delegate to getBlockLightLevel / getSkyLightLevel so other mods' injections still fire,
+        // but pass the corrected blockpos derived from the interpolated eye position.
+        final int block = getBlockLightLevel(arg, blockpos);
+        final int sky = sable$getSubLevelAccountedLight(arg.level(), LightLayer.SKY, blockpos, lightProbePosition);
+        cir.setReturnValue(LightTexture.pack(block, sky));
     }
 
     @Redirect(method = "getSkyLightLevel", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/Level;getBrightness(Lnet/minecraft/world/level/LightLayer;Lnet/minecraft/core/BlockPos;)I"))
