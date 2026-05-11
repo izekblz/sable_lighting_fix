@@ -6,6 +6,7 @@ import dev.ryanhcode.sable.api.physics.callback.BlockSubLevelCollisionCallback;
 import dev.ryanhcode.sable.api.physics.mass.MassData;
 import dev.ryanhcode.sable.mixinterface.physics.ServerLevelSceneExtension;
 import dev.ryanhcode.sable.physics.impl.rapier.collider.RapierVoxelColliderData;
+import net.jpountz.lz4.LZ4FrameInputStream;
 import net.minecraft.Util;
 import net.minecraft.Util.OS;
 import net.minecraft.server.level.ServerLevel;
@@ -17,15 +18,19 @@ import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
  * Java side of the sable_rapier bridge for using the Rapier 3D physics engine.
  */
 @ApiStatus.Internal
 public class Rapier3D {
+
+    private static final String NATIVE_DIR = ".sable/natives";
     private static final String LIB_NAME = "sable_rapier";
-    private static final String LIB_TMP_DIR_PREFIX = LIB_NAME + "_natives";
     public static boolean ENABLED = false;
 
     private static int countingSceneID = 0;
@@ -57,19 +62,38 @@ public class Rapier3D {
 
     private static void loadLibrary() {
         final String nativeName = getNativeName();
-        try (final InputStream is = Rapier3D.class.getResourceAsStream("/natives/" + LIB_NAME + "/" + nativeName)) {
+        try (final InputStream is = Rapier3D.class.getResourceAsStream("/natives/" + LIB_NAME + "/sable_rapier_binaries.zip.l4z")) {
             if (is == null) {
-                throw new FileNotFoundException(LIB_NAME);
+                throw new FileNotFoundException("sable_rapier_binaries.zip.l4z");
             }
 
-            final Path tempFile = Files.createTempFile(LIB_TMP_DIR_PREFIX, null);
-            Files.copy(is, tempFile, StandardCopyOption.REPLACE_EXISTING);
-            System.load(tempFile.toAbsolutePath().toString());
-            ENABLED = true;
+            final Path dir = Paths.get(NATIVE_DIR);
+            if (!Files.exists(dir)) {
+                Files.createDirectories(dir);
+            }
+
+            try (final LZ4FrameInputStream is2 = new LZ4FrameInputStream(is);
+                 final ZipInputStream ti = new ZipInputStream(is2)) {
+
+                ZipEntry entry;
+                while ((entry = ti.getNextEntry()) != null) {
+                    if (entry.getName().equals(nativeName)) {
+                        final Path tempFile = dir.resolve(nativeName);
+                        Files.copy(ti, tempFile, StandardCopyOption.REPLACE_EXISTING);
+                        System.load(tempFile.toAbsolutePath().toString());
+                        ENABLED = true;
+                        return;
+                    }
+                }
+
+                throw new FileNotFoundException(nativeName);
+            }
         } catch (final Throwable t) {
             ENABLED = false;
 
-            Sable.LOGGER.error("Sable has failed to load the natives needed for its Rapier pipeline. Native library name {}. Please report with system details and logs to {}", nativeName, Sable.ISSUE_TRACKER_URL, t);
+            Sable.LOGGER.error(
+                    "Sable has failed to load the natives needed for its Rapier pipeline. Native library name {}. Please report with system details and logs to {}",
+                    nativeName, Sable.ISSUE_TRACKER_URL, t);
         }
     }
 
@@ -148,7 +172,7 @@ public class Rapier3D {
     /**
      * Gets the pose of an object.
      *
-     * @param id the object ID
+     * @param id    the object ID
      * @param store The array to store pose of the object in the format [x, y, z, qx, qy, qz, qw]
      */
     @ApiStatus.Internal
@@ -516,7 +540,7 @@ public class Rapier3D {
      * Gets the linear velocity of a given body
      *
      * @param bodyID the ID of an already created rigid-body
-     * @param store The array to store the linear velocity of the body in the format [x, y, z]
+     * @param store  The array to store the linear velocity of the body in the format [x, y, z]
      */
     @ApiStatus.Internal
     public static native void getLinearVelocity(final int dimensionID, final int bodyID, final double[] store);
@@ -525,7 +549,7 @@ public class Rapier3D {
      * Gets the angular velocity of a given body
      *
      * @param bodyID the ID of an already created rigid-body
-     * @param store The array to store the angular velocity of the body in the format [x, y, z]
+     * @param store  The array to store the angular velocity of the body in the format [x, y, z]
      */
     @ApiStatus.Internal
     public static native void getAngularVelocity(final int dimensionID, final int bodyID, final double[] store);
@@ -535,8 +559,8 @@ public class Rapier3D {
      *
      * @param sceneId the scene ID
      * @param mountId the mount rigid body ID (or -1 for ground)
-     * @param id the kinematic sub-level ID
-     * @param pose a 7-long double array, formatted [x, y, z, qx, qy, qz, qw] for position and quaternion
+     * @param id      the kinematic sub-level ID
+     * @param pose    a 7-long double array, formatted [x, y, z, qx, qy, qz, qw] for position and quaternion
      */
     @ApiStatus.Internal
     public static native void createKinematicContraption(final int sceneId, int mountId, int id, double[] pose);
@@ -545,7 +569,7 @@ public class Rapier3D {
      * Removes a kinematic sub-level from a scene.
      *
      * @param sceneId the scene ID
-     * @param id the kinematic sub-level ID to remove
+     * @param id      the kinematic sub-level ID to remove
      */
     @ApiStatus.Internal
     public static native void removeKinematicContraption(final int sceneId, int id);
@@ -554,8 +578,8 @@ public class Rapier3D {
      * Sets the transform (position/quaternion) of a kinematic sub-level's center of mass relative to its parent.
      *
      * @param sceneId the scene ID
-     * @param id the kinematic sub-level ID
-     * @param pose a 7-long double array, formatted [x, y, z, qx, qy, qz, qw] for position and quaternion
+     * @param id      the kinematic sub-level ID
+     * @param pose    a 7-long double array, formatted [x, y, z, qx, qy, qz, qw] for position and quaternion
      */
     @ApiStatus.Internal
     public static native void setKinematicContraptionTransform(final int sceneId, int id, double[] centerOfMass, double[] pose, double[] velocities);
@@ -564,17 +588,18 @@ public class Rapier3D {
      * Adds a chunk to a kinematic sub-level (4096 blocks, each as packed int).
      *
      * @param sceneId the scene ID
-     * @param id the kinematic sub-level ID
-     * @param x the chunk x coordinate
-     * @param y the chunk y coordinate
-     * @param z the chunk z coordinate
-     * @param data a 4096-long int array containing packed block data (block_collider_id << 16 | voxel_state_id)
+     * @param id      the kinematic sub-level ID
+     * @param x       the chunk x coordinate
+     * @param y       the chunk y coordinate
+     * @param z       the chunk z coordinate
+     * @param data    a 4096-long int array containing packed block data (block_collider_id << 16 | voxel_state_id)
      */
     @ApiStatus.Internal
     public static native void addKinematicContraptionChunkSection(final int sceneId, int id, int x, int y, int z, int[] data);
 
     /**
      * Creates a rope
+     *
      * @return a rope id
      */
     @ApiStatus.Internal
@@ -582,6 +607,7 @@ public class Rapier3D {
 
     /**
      * Removes a rope
+     *
      * @param ropeId a rope id
      */
     @ApiStatus.Internal
@@ -605,6 +631,7 @@ public class Rapier3D {
 
     /**
      * Queries a rope
+     *
      * @param ropeId a rope id
      */
     @ApiStatus.Internal
@@ -621,13 +648,17 @@ public class Rapier3D {
     @ApiStatus.Internal
     public static native void configMinIslandSize(int islandSize);
 
+    @ApiStatus.Internal
     public static native void dispose();
 
+    @ApiStatus.Internal
     public static void setMassPropertiesFrom(final int dimensionID, final int id, final MassData massTracker) {
         final Matrix3dc inertiaTensor = massTracker.getInertiaTensor();
         final Vector3dc centerOfMass = massTracker.getCenterOfMass();
         final double mass = massTracker.getMass();
 
+        // This is only called in one location and the center of mass can't be null
+        //noinspection DataFlowIssue
         final double[] centerOfMassArray = new double[]{centerOfMass.x(), centerOfMass.y(), centerOfMass.z()};
         final double[] inertiaTensorArray = new double[]{
                 inertiaTensor.m00(), inertiaTensor.m01(), inertiaTensor.m02(),
