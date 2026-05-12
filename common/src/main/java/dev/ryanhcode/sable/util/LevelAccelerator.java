@@ -16,7 +16,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.material.FluidState;
-import org.jetbrains.annotations.NotNull;
+import net.minecraft.world.level.material.Fluids;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -48,6 +48,7 @@ public class LevelAccelerator implements BlockGetter {
 
     public void setBlockFast(final BlockPos blockPos, final BlockState blockState) {
         final LevelChunk chunk = this.getChunk(blockPos);
+        if (chunk == null) return;
         final BlockState blockState2 = chunk.setBlockState(blockPos, blockState, false);
         if (blockState2 == null) {
             return;
@@ -64,6 +65,7 @@ public class LevelAccelerator implements BlockGetter {
     @Override
     public BlockState getBlockState(final BlockPos pos) {
         final LevelChunk chunk = this.getChunk(pos);
+        if (chunk == null) return Blocks.AIR.defaultBlockState();
         return this.getBlockState(chunk, pos);
     }
 
@@ -86,15 +88,15 @@ public class LevelAccelerator implements BlockGetter {
     @Override
     public FluidState getFluidState(final BlockPos pos) {
         final LevelChunk chunk = this.getChunk(pos);
-
+        if (chunk == null) return Fluids.EMPTY.defaultFluidState();
         return chunk.getFluidState(pos);
     }
 
-    public LevelChunk getChunk(final BlockPos pos) {
+    public @Nullable LevelChunk getChunk(final BlockPos pos) {
         return this.getChunk(pos.getX() >> 4, pos.getZ() >> 4);
     }
 
-    public LevelChunk getChunk(final int chunkX, final int chunkZ) {
+    public @Nullable LevelChunk getChunk(final int chunkX, final int chunkZ) {
         final long pos = ChunkPos.asLong(chunkX, chunkZ);
 
         if (pos == this.cachedChunkPos && this.cachedChunkObj != null) {
@@ -109,13 +111,15 @@ public class LevelAccelerator implements BlockGetter {
             chunk = this.grabChunkFast(chunkX, chunkZ, pos);
         }
 
-        this.cachedChunkObj = chunk;
-        this.cachedChunkPos = pos;
+        if (chunk != null) {
+            this.cachedChunkObj = chunk;
+            this.cachedChunkPos = pos;
+        }
 
         return chunk;
     }
 
-    private @NotNull LevelChunk grabChunkFast(final int chunkX, final int chunkZ, final long pos) {
+    private @Nullable LevelChunk grabChunkFast(final int chunkX, final int chunkZ, final long pos) {
         if (this.level.isClientSide) {
             return this.level.getChunk(chunkX, chunkZ);
         }
@@ -123,13 +127,10 @@ public class LevelAccelerator implements BlockGetter {
         final ChunkHolder holder = ((ServerChunkCacheAccessor) this.level.getChunkSource()).invokeGetVisibleChunkIfPresent(pos);
 
         if (holder != null) {
-            final LevelChunk res = holder.getFullChunkFuture().getNow(ChunkResult.error("No chunk at position")).orElse(null);
-
-            if (res != null)
-                return res;
+            return holder.getFullChunkFuture().getNow(ChunkResult.error("No chunk at position")).orElse(null);
         }
 
-        return this.level.getChunk(chunkX, chunkZ);
+        return null;
     }
 
     public boolean isOutsideBuildHeight(final Vec3i pos) {

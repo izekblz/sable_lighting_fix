@@ -17,6 +17,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.lighting.LevelLightEngine;
 import net.minecraft.world.level.lighting.LightEngine;
 import org.joml.Vector3d;
@@ -98,7 +99,8 @@ public final class ServerSubLevelLightInjector {
      */
     private static void updateCacheFromSection(final ServerLevel level, final SubLevel subLevel,
                                                 final int sectionX, final int sectionY, final int sectionZ) {
-        if (!level.hasChunk(sectionX, sectionZ)) return;
+        final LevelChunk chunk = level.getChunkSource().getChunkNow(sectionX, sectionZ);
+        if (chunk == null) return;
 
         final UUID id = subLevel.getUniqueId();
         final Long2IntOpenHashMap sources = cachedWorldSources.computeIfAbsent(id, k -> {
@@ -133,7 +135,7 @@ public final class ServerSubLevelLightInjector {
                     final SubLevel atWorld = Sable.HELPER.getContaining(level, new ChunkPos(wx >> 4, wz >> 4));
                     if (atWorld == subLevel) continue;
 
-                    final BlockState state = level.getBlockState(new BlockPos(wx, wy, wz));
+                    final BlockState state = chunk.getBlockState(new BlockPos(wx, wy, wz));
                     final int emission = state.getLightEmission();
                     if (emission > 0) {
                         sources.put(BlockPos.asLong(wx, wy, wz), emission);
@@ -173,11 +175,12 @@ public final class ServerSubLevelLightInjector {
         for (int wy = minY; wy <= maxY; wy++) {
             for (int wx = minX; wx <= maxX; wx++) {
                 for (int wz = minZ; wz <= maxZ; wz++) {
-                    if (!level.hasChunk(wx >> 4, wz >> 4)) continue;
+                    final LevelChunk worldChunk = level.getChunkSource().getChunkNow(wx >> 4, wz >> 4);
+                    if (worldChunk == null) continue;
                     final SubLevel atWorld = Sable.HELPER.getContaining(level, new ChunkPos(wx >> 4, wz >> 4));
                     if (atWorld == subLevel) continue;
 
-                    final BlockState state = level.getBlockState(new BlockPos(wx, wy, wz));
+                    final BlockState state = worldChunk.getBlockState(new BlockPos(wx, wy, wz));
                     final int emission = state.getLightEmission();
                     if (emission > 0) {
                         sources.put(BlockPos.asLong(wx, wy, wz), emission);
@@ -209,17 +212,17 @@ public final class ServerSubLevelLightInjector {
                 final Pose3dc otherPose = other.logicalPose();
 
                 for (final PlotChunkHolder holder : otherPlot.getLoadedChunks()) {
-                    final var chunk = holder.getChunk();
-                    if (chunk == null) continue;
+                    final var plotChunk = holder.getChunk();
+                    if (plotChunk == null) continue;
 
-                    final int baseX = chunk.getPos().getMinBlockX();
-                    final int baseZ = chunk.getPos().getMinBlockZ();
+                    final int baseX = plotChunk.getPos().getMinBlockX();
+                    final int baseZ = plotChunk.getPos().getMinBlockZ();
 
-                    for (int sIdx = 0; sIdx < chunk.getSectionsCount(); sIdx++) {
-                        final var section = chunk.getSection(sIdx);
+                    for (int sIdx = 0; sIdx < plotChunk.getSectionsCount(); sIdx++) {
+                        final var section = plotChunk.getSection(sIdx);
                         if (section.hasOnlyAir()) continue;
 
-                        final int baseY = chunk.getLevel().getSectionYFromSectionIndex(sIdx) << 4;
+                        final int baseY = plotChunk.getLevel().getSectionYFromSectionIndex(sIdx) << 4;
 
                         for (int x = 0; x < 16; x++)
                             for (int y = 0; y < 16; y++)
@@ -408,8 +411,8 @@ public final class ServerSubLevelLightInjector {
         if (!needsResend.remove(id, Boolean.TRUE)) return;
 
         for (final PlotChunkHolder holder : plot.getLoadedChunks()) {
-            final var chunk = holder.getChunk();
-            if (chunk == null) continue;
+            final var plotChunk = holder.getChunk();
+            if (plotChunk == null) continue;
 
             final ChunkPos globalPos = holder.getPos();
             final var players = dev.ryanhcode.sable.api.sublevel.SubLevelContainer.getContainer(level).getPlayersTracking(globalPos);

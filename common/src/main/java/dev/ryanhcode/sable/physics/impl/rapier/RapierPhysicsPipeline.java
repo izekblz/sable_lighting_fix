@@ -458,6 +458,8 @@ public class RapierPhysicsPipeline implements PhysicsPipeline {
         // if it's only air, all zeros will do. it'll default to empty neighborhood state and 0 (empty) collider ID
         if (!section.hasOnlyAir()) {
             final LevelChunk chunk = this.accelerator.getChunk(x, z);
+            if (chunk == null) return;
+
 
             for (int bx = 0; bx < 16; bx++) {
                 for (int bz = 0; bz < 16; bz++) {
