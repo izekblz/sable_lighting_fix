@@ -41,6 +41,7 @@ public final class ServerSubLevelLightInjector {
 
     /**
      * Called when server-side block light changes in a section (world light engine only).
+     * Note: this may be called from the light thread, so only set flags here.
      */
     public static void onServerLightUpdate(final ServerLevel level, final int sectionX, final int sectionY, final int sectionZ) {
         final var container = dev.ryanhcode.sable.api.sublevel.SubLevelContainer.getContainer(level);
@@ -62,7 +63,7 @@ public final class ServerSubLevelLightInjector {
                     && secMaxY + margin >= bounds.minY() && secMinY - margin <= bounds.maxY()
                     && secMaxZ + margin >= bounds.minZ() && secMinZ - margin <= bounds.maxZ()) {
 
-                updateCacheFromSection(level, subLevel, sectionX, sectionY, sectionZ);
+                needsRescan.put(subLevel.getUniqueId(), Boolean.TRUE);
                 needsReinject.put(subLevel.getUniqueId(), Boolean.TRUE);
             }
         }
@@ -308,8 +309,14 @@ public final class ServerSubLevelLightInjector {
 
             // Full rescan for new/split sub-levels
             if (needsRescan.remove(id, Boolean.TRUE)) {
-                fullRescan(level, subLevel);
-                needsReinject.put(id, Boolean.TRUE);
+                final BoundingBox3dc bounds = subLevel.boundingBox();
+                if (bounds.minX() >= bounds.maxX() && bounds.minZ() >= bounds.maxZ()) {
+                    // Bounding box not yet initialized — defer to next tick
+                    needsRescan.put(id, Boolean.TRUE);
+                } else {
+                    fullRescan(level, subLevel);
+                    needsReinject.put(id, Boolean.TRUE);
+                }
             }
 
             // Re-inject if needed
