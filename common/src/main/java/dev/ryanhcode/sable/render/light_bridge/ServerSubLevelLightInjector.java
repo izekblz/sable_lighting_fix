@@ -33,18 +33,34 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class ServerSubLevelLightInjector {
 
     private static final double LIGHT_MARGIN = 15.0;
-    private static final double MOVEMENT_THRESHOLD_SQ = 0.25;
-    private static final double RESCAN_DISTANCE_SQ = 64.0;
 
     private static final ConcurrentHashMap<UUID, LongSet> injectedPositions = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<UUID, Long2IntOpenHashMap> cachedWorldSources = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<UUID, Vector3d> lastPosePositions = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<UUID, Long> lastBlockPositions = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<UUID, int[]> lastScanBounds = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<UUID, Vector3d> lastRescanPositions = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<UUID, Boolean> needsRescan = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<UUID, Boolean> needsReinject = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<UUID, Boolean> needsResend = new ConcurrentHashMap<>();
 
+    /**
+     * Plot-local positions that correspond to opaque world blocks near each sub-level.
+     * Used by the light engine mixin to block light propagation inside plots at world-opaque positions.
+     */
+    private static final ConcurrentHashMap<UUID, LongSet> plotLocalWorldOpaque = new ConcurrentHashMap<>();
+
     private ServerSubLevelLightInjector() {
+    }
+
+    /**
+     * @return true if the given plot-local position corresponds to an opaque world block
+     *         for any sub-level. Called from the light engine mixin during plot propagation.
+     */
+    public static boolean isWorldOpaqueInPlot(final long packedPlotPos) {
+        for (final LongSet set : plotLocalWorldOpaque.values()) {
+            if (set.contains(packedPlotPos)) return true;
+        }
+        return false;
     }
 
     /**
@@ -95,6 +111,13 @@ public final class ServerSubLevelLightInjector {
         }
     }
 
+    /**
+     * @return the cached world emitter sources for a sub-level, or null.
+     */
+    public static Long2IntOpenHashMap getCachedWorldSources(final UUID subLevelId) {
+        return cachedWorldSources.get(subLevelId);
+    }
+
     public static void markNeedsFullRescan(final UUID subLevelId) {
         needsRescan.put(subLevelId, Boolean.TRUE);
     }
@@ -107,19 +130,48 @@ public final class ServerSubLevelLightInjector {
 
         try {
             final Vector3dc currentPos = subLevel.logicalPose().position();
-            final Vector3d lastPos = lastPosePositions.get(id);
-            if (lastPos == null) {
-                lastPosePositions.put(id, new Vector3d(currentPos));
-            } else if (lastPos.distanceSquared(currentPos) > MOVEMENT_THRESHOLD_SQ) {
-                lastPosePositions.put(id, new Vector3d(currentPos));
+            final long currentBlock = BlockPos.asLong(
+                    (int) Math.floor(currentPos.x()),
+                    (int) Math.floor(currentPos.y()),
+                    (int) Math.floor(currentPos.z()));
+            final Long lastBlock = lastBlockPositions.get(id);
+            if (lastBlock == null) {
+                lastBlockPositions.put(id, currentBlock);
+                needsRescan.put(id, Boolean.TRUE);
+            } else if (lastBlock != currentBlock) {
+                final int dx = BlockPos.getX(currentBlock) - BlockPos.getX(lastBlock);
+                final int dy = BlockPos.getY(currentBlock) - BlockPos.getY(lastBlock);
+                final int dz = BlockPos.getZ(currentBlock) - BlockPos.getZ(lastBlock);
+                lastBlockPositions.put(id, currentBlock);
                 needsReinject.put(id, Boolean.TRUE);
+                markNearbyForRescan(level, subLevel);
 
-                final Vector3d lastRescan = lastRescanPositions.get(id);
-                if (lastRescan == null || lastRescan.distanceSquared(currentPos) > RESCAN_DISTANCE_SQ) {
+                // Try incremental scan (works for any translation)
+                if (cachedWorldSources.containsKey(id)) {
+                    incrementalScan(level, subLevel, dx, dy, dz);
+                } else {
                     needsRescan.put(id, Boolean.TRUE);
                 }
-
-                markNearbyForRescan(level, subLevel);
+            } else if (cachedWorldSources.containsKey(id)) {
+                // Position didn't change but bounds may have changed due to rotation
+                final BoundingBox3dc bounds = subLevel.boundingBox();
+                if (bounds != null) {
+                    final int margin = (int) LIGHT_MARGIN;
+                    final int newMinX = (int) Math.floor(bounds.minX()) - margin;
+                    final int newMinY = Math.max(level.getMinBuildHeight(), (int) Math.floor(bounds.minY()) - margin);
+                    final int newMinZ = (int) Math.floor(bounds.minZ()) - margin;
+                    final int newMaxX = (int) Math.ceil(bounds.maxX()) + margin;
+                    final int newMaxY = Math.min(level.getMaxBuildHeight() - 1, (int) Math.ceil(bounds.maxY()) + margin);
+                    final int newMaxZ = (int) Math.ceil(bounds.maxZ()) + margin;
+                    final int[] prev = lastScanBounds.get(id);
+                    if (prev != null && (newMinX != prev[0] || newMinY != prev[1] || newMinZ != prev[2]
+                            || newMaxX != prev[3] || newMaxY != prev[4] || newMaxZ != prev[5])) {
+                        // Bounds changed (rotation) - do incremental bounds-diff scan
+                        boundsDiffScan(level, subLevel, prev, newMinX, newMinY, newMinZ, newMaxX, newMaxY, newMaxZ);
+                        needsReinject.put(id, Boolean.TRUE);
+                        markNearbyForRescan(level, subLevel);
+                    }
+                }
             }
 
             if (needsRescan.remove(id, Boolean.TRUE)) {
@@ -162,11 +214,13 @@ public final class ServerSubLevelLightInjector {
     public static void clear() {
         injectedPositions.clear();
         cachedWorldSources.clear();
-        lastPosePositions.clear();
         lastRescanPositions.clear();
+        lastBlockPositions.clear();
+        lastScanBounds.clear();
         needsRescan.clear();
         needsReinject.clear();
         needsResend.clear();
+        plotLocalWorldOpaque.clear();
     }
 
     private static void fullRescan(final ServerLevel level, final ServerSubLevel subLevel) {
@@ -174,8 +228,34 @@ public final class ServerSubLevelLightInjector {
         if (bounds == null) return;
 
         final UUID id = subLevel.getUniqueId();
-        final Long2IntOpenHashMap sources = new Long2IntOpenHashMap();
-        sources.defaultReturnValue(0);
+        final int margin = (int) LIGHT_MARGIN;
+        final int minX = (int) Math.floor(bounds.minX()) - margin;
+        final int minY = Math.max(level.getMinBuildHeight(), (int) Math.floor(bounds.minY()) - margin);
+        final int minZ = (int) Math.floor(bounds.minZ()) - margin;
+        final int maxX = (int) Math.ceil(bounds.maxX()) + margin;
+        final int maxY = Math.min(level.getMaxBuildHeight() - 1, (int) Math.ceil(bounds.maxY()) + margin);
+        final int maxZ = (int) Math.ceil(bounds.maxZ()) + margin;
+
+        final Long2IntOpenHashMap sources = scanWorldEmitters(level, subLevel, minX, minY, minZ, maxX, maxY, maxZ);
+        scanOtherSubLevelEmitters(level, subLevel, bounds, margin, sources);
+        scanWorldOpaqueIntoPlot(level, subLevel, minX, minY, minZ, maxX, maxY, maxZ);
+
+        cachedWorldSources.put(id, sources);
+        lastRescanPositions.put(id, new Vector3d(subLevel.logicalPose().position()));
+        lastScanBounds.put(id, new int[]{minX, minY, minZ, maxX, maxY, maxZ});
+    }
+
+    /**
+     * Incremental world scan: shifts cached sources by removing the trailing slice
+     * and scanning only the leading slice in the direction of movement.
+     */
+    private static void incrementalScan(final ServerLevel level, final ServerSubLevel subLevel, final int dx, final int dy, final int dz) {
+        final UUID id = subLevel.getUniqueId();
+        final BoundingBox3dc bounds = subLevel.boundingBox();
+        if (bounds == null) return;
+
+        final Long2IntOpenHashMap sources = cachedWorldSources.get(id);
+        if (sources == null) return;
 
         final int margin = (int) LIGHT_MARGIN;
         final int minX = (int) Math.floor(bounds.minX()) - margin;
@@ -185,6 +265,121 @@ public final class ServerSubLevelLightInjector {
         final int maxY = Math.min(level.getMaxBuildHeight() - 1, (int) Math.ceil(bounds.maxY()) + margin);
         final int maxZ = (int) Math.ceil(bounds.maxZ()) + margin;
 
+        // Remove entries from trailing slice (outside new bounds)
+        final var iter = sources.long2IntEntrySet().iterator();
+        while (iter.hasNext()) {
+            final var entry = iter.next();
+            final int wx = BlockPos.getX(entry.getLongKey());
+            final int wy = BlockPos.getY(entry.getLongKey());
+            final int wz = BlockPos.getZ(entry.getLongKey());
+            if (wx < minX || wx > maxX || wy < minY || wy > maxY || wz < minZ || wz > maxZ) {
+                iter.remove();
+            }
+        }
+
+        // Scan leading slices on each axis that moved
+        final int sliceMinX = dx > 0 ? (maxX - dx + 1) : (dx < 0 ? minX : minX);
+        final int sliceMaxX = dx > 0 ? maxX : (dx < 0 ? (minX - dx - 1) : maxX);
+        final int sliceMinY = dy > 0 ? (maxY - dy + 1) : (dy < 0 ? minY : minY);
+        final int sliceMaxY = dy > 0 ? maxY : (dy < 0 ? (minY - dy - 1) : maxY);
+        final int sliceMinZ = dz > 0 ? (maxZ - dz + 1) : (dz < 0 ? minZ : minZ);
+        final int sliceMaxZ = dz > 0 ? maxZ : (dz < 0 ? (minZ - dz - 1) : maxZ);
+
+        final BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
+        LevelChunk lastChunk = null;
+        int lastChunkX = Integer.MIN_VALUE, lastChunkZ = Integer.MIN_VALUE;
+
+        for (int wy = sliceMinY; wy <= sliceMaxY; wy++) {
+            for (int wx = sliceMinX; wx <= sliceMaxX; wx++) {
+                for (int wz = sliceMinZ; wz <= sliceMaxZ; wz++) {
+                    final int cx = wx >> 4, cz = wz >> 4;
+                    if (cx != lastChunkX || cz != lastChunkZ) {
+                        lastChunk = level.getChunkSource().getChunkNow(cx, cz);
+                        lastChunkX = cx; lastChunkZ = cz;
+                        if (lastChunk == null) continue;
+                        final SubLevel atWorld = Sable.HELPER.getContaining(level, new ChunkPos(cx, cz));
+                        if (atWorld == subLevel) { lastChunk = null; continue; }
+                    }
+                    if (lastChunk == null) continue;
+                    mutable.set(wx, wy, wz);
+                    final int emission = lastChunk.getBlockState(mutable).getLightEmission();
+                    if (emission > 0) {
+                        sources.put(BlockPos.asLong(wx, wy, wz), emission);
+                    }
+                }
+            }
+        }
+
+        // Also re-scan other sub-level emitters
+        scanOtherSubLevelEmitters(level, subLevel, bounds, margin, sources);
+        // Also re-scan world opaque into plot
+        scanWorldOpaqueIntoPlot(level, subLevel, minX, minY, minZ, maxX, maxY, maxZ);
+        lastScanBounds.put(id, new int[]{minX, minY, minZ, maxX, maxY, maxZ});
+    }
+
+    /**
+     * Bounds-diff scan for rotation: removes entries outside new bounds,
+     * scans only the regions in new bounds that weren't in old bounds.
+     */
+    private static void boundsDiffScan(final ServerLevel level, final ServerSubLevel subLevel,
+            final int[] prev, final int newMinX, final int newMinY, final int newMinZ,
+            final int newMaxX, final int newMaxY, final int newMaxZ) {
+        final UUID id = subLevel.getUniqueId();
+        final Long2IntOpenHashMap sources = cachedWorldSources.get(id);
+        if (sources == null) return;
+
+        // Remove entries outside new bounds
+        final var iter = sources.long2IntEntrySet().iterator();
+        while (iter.hasNext()) {
+            final var entry = iter.next();
+            final int wx = BlockPos.getX(entry.getLongKey());
+            final int wy = BlockPos.getY(entry.getLongKey());
+            final int wz = BlockPos.getZ(entry.getLongKey());
+            if (wx < newMinX || wx > newMaxX || wy < newMinY || wy > newMaxY || wz < newMinZ || wz > newMaxZ) {
+                iter.remove();
+            }
+        }
+
+        // Scan new regions (positions in new bounds but not in old bounds)
+        final int oldMinX = prev[0], oldMinY = prev[1], oldMinZ = prev[2];
+        final int oldMaxX = prev[3], oldMaxY = prev[4], oldMaxZ = prev[5];
+        final BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
+        LevelChunk lastChunk = null;
+        int lastChunkX = Integer.MIN_VALUE, lastChunkZ = Integer.MIN_VALUE;
+
+        for (int wy = newMinY; wy <= newMaxY; wy++) {
+            for (int wx = newMinX; wx <= newMaxX; wx++) {
+                for (int wz = newMinZ; wz <= newMaxZ; wz++) {
+                    // Skip positions that were already in old bounds
+                    if (wx >= oldMinX && wx <= oldMaxX && wy >= oldMinY && wy <= oldMaxY && wz >= oldMinZ && wz <= oldMaxZ) continue;
+                    final int cx = wx >> 4, cz = wz >> 4;
+                    if (cx != lastChunkX || cz != lastChunkZ) {
+                        lastChunk = level.getChunkSource().getChunkNow(cx, cz);
+                        lastChunkX = cx; lastChunkZ = cz;
+                        if (lastChunk == null) continue;
+                        final SubLevel atWorld = Sable.HELPER.getContaining(level, new ChunkPos(cx, cz));
+                        if (atWorld == subLevel) { lastChunk = null; continue; }
+                    }
+                    if (lastChunk == null) continue;
+                    mutable.set(wx, wy, wz);
+                    final int emission = lastChunk.getBlockState(mutable).getLightEmission();
+                    if (emission > 0) {
+                        sources.put(BlockPos.asLong(wx, wy, wz), emission);
+                    }
+                }
+            }
+        }
+
+        final int margin = (int) LIGHT_MARGIN;
+        scanOtherSubLevelEmitters(level, subLevel, subLevel.boundingBox(), margin, sources);
+        scanWorldOpaqueIntoPlot(level, subLevel, newMinX, newMinY, newMinZ, newMaxX, newMaxY, newMaxZ);
+        lastScanBounds.put(id, new int[]{newMinX, newMinY, newMinZ, newMaxX, newMaxY, newMaxZ});
+    }
+
+    private static Long2IntOpenHashMap scanWorldEmitters(final ServerLevel level, final ServerSubLevel subLevel,
+            final int minX, final int minY, final int minZ, final int maxX, final int maxY, final int maxZ) {
+        final Long2IntOpenHashMap sources = new Long2IntOpenHashMap();
+        sources.defaultReturnValue(0);
         final BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
         LevelChunk lastChunk = null;
         int lastChunkX = Integer.MIN_VALUE, lastChunkZ = Integer.MIN_VALUE;
@@ -211,62 +406,141 @@ public final class ServerSubLevelLightInjector {
                 }
             }
         }
+        return sources;
+    }
 
-        // Scan other sub-levels' plot emitters
-        final var container = dev.ryanhcode.sable.api.sublevel.SubLevelContainer.getContainer(level);
-        if (container != null) {
-            final Vector3d worldPos = new Vector3d();
-            for (final SubLevel other : container.getAllSubLevels()) {
-                if (other == subLevel || !(other instanceof final ServerSubLevel otherServer)) continue;
+    private static void scanWorldOpaqueIntoPlot(final ServerLevel level, final ServerSubLevel subLevel,
+            final int minX, final int minY, final int minZ, final int maxX, final int maxY, final int maxZ) {
+        final UUID id = subLevel.getUniqueId();
+        final Pose3dc pose = subLevel.logicalPose();
+        final LongOpenHashSet worldOpaqueInPlot = new LongOpenHashSet();
+        final Vector3d plotLocalPos = new Vector3d();
+        final BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
+        LevelChunk lastChunk = null;
+        int lastChunkX = Integer.MIN_VALUE, lastChunkZ = Integer.MIN_VALUE;
 
-                final BoundingBox3dc otherBounds = other.boundingBox();
-                if (otherBounds == null || !boundsOverlap(bounds, otherBounds)) continue;
-
-                final var otherPlot = otherServer.getPlot();
-                if (otherPlot.getBoundingBox() == null) continue;
-
-                final Pose3dc otherPose = other.logicalPose();
-
-                for (final PlotChunkHolder holder : otherPlot.getLoadedChunks()) {
-                    final var plotChunk = holder.getChunk();
-                    if (plotChunk == null) continue;
-
-                    final int baseX = plotChunk.getPos().getMinBlockX();
-                    final int baseZ = plotChunk.getPos().getMinBlockZ();
-
-                    for (int sIdx = 0; sIdx < plotChunk.getSectionsCount(); sIdx++) {
-                        final var section = plotChunk.getSection(sIdx);
-                        if (section.hasOnlyAir()) continue;
-
-                        final int baseY = plotChunk.getLevel().getSectionYFromSectionIndex(sIdx) << 4;
-
-                        for (int x = 0; x < 16; x++)
-                            for (int y = 0; y < 16; y++)
-                                for (int z = 0; z < 16; z++) {
-                                    final int em = section.getBlockState(x, y, z).getLightEmission();
-                                    if (em <= 0) continue;
-
-                                    worldPos.set(baseX + x + 0.5, baseY + y + 0.5, baseZ + z + 0.5);
-                                    otherPose.transformPosition(worldPos);
-
-                                    if (worldPos.x >= bounds.minX() - margin && worldPos.x <= bounds.maxX() + margin
-                                            && worldPos.y >= bounds.minY() - margin && worldPos.y <= bounds.maxY() + margin
-                                            && worldPos.z >= bounds.minZ() - margin && worldPos.z <= bounds.maxZ() + margin) {
-                                        final long packed = BlockPos.asLong(
-                                                (int) Math.floor(worldPos.x),
-                                                (int) Math.floor(worldPos.y),
-                                                (int) Math.floor(worldPos.z));
-                                        final int existing = sources.get(packed);
-                                        if (em > existing) sources.put(packed, em);
-                                    }
-                                }
+        for (int wy = minY; wy <= maxY; wy++) {
+            for (int wx = minX; wx <= maxX; wx++) {
+                for (int wz = minZ; wz <= maxZ; wz++) {
+                    final int cx = wx >> 4, cz = wz >> 4;
+                    if (cx != lastChunkX || cz != lastChunkZ) {
+                        lastChunk = level.getChunkSource().getChunkNow(cx, cz);
+                        lastChunkX = cx;
+                        lastChunkZ = cz;
+                        if (lastChunk == null) continue;
+                        final SubLevel atWorld = Sable.HELPER.getContaining(level, new ChunkPos(cx, cz));
+                        if (atWorld == subLevel) { lastChunk = null; continue; }
                     }
+                    if (lastChunk == null) continue;
+
+                    mutable.set(wx, wy, wz);
+                    final BlockState worldBlockState = lastChunk.getBlockState(mutable);
+                    if (!worldBlockState.canOcclude() || worldBlockState.useShapeForLightOcclusion()) continue;
+
+                    plotLocalPos.set(wx + 0.5, wy + 0.5, wz + 0.5);
+                    pose.transformPositionInverse(plotLocalPos);
+
+                    worldOpaqueInPlot.add(BlockPos.asLong(
+                            (int) Math.floor(plotLocalPos.x),
+                            (int) Math.floor(plotLocalPos.y),
+                            (int) Math.floor(plotLocalPos.z)));
                 }
             }
         }
 
-        cachedWorldSources.put(id, sources);
-        lastRescanPositions.put(id, new Vector3d(subLevel.logicalPose().position()));
+        // Also project other sub-levels' opaque world positions into this plot's local space.
+        // This prevents light from sub-level A passing through sub-level B to reach this sub-level.
+        final LongSet subLevelOpaqueWorld = ServerSubLevelWorldInjector.getOpaquePositions();
+        final LongSet ownGapFills = ServerSubLevelWorldInjector.getGapFillsForSubLevel(id);
+        for (final long worldPacked : subLevelOpaqueWorld) {
+            if (ownGapFills.contains(worldPacked)) continue;
+            plotLocalPos.set(
+                    BlockPos.getX(worldPacked) + 0.5,
+                    BlockPos.getY(worldPacked) + 0.5,
+                    BlockPos.getZ(worldPacked) + 0.5);
+            pose.transformPositionInverse(plotLocalPos);
+            worldOpaqueInPlot.add(BlockPos.asLong(
+                    (int) Math.floor(plotLocalPos.x),
+                    (int) Math.floor(plotLocalPos.y),
+                    (int) Math.floor(plotLocalPos.z)));
+        }
+
+
+        for (final PlotChunkHolder holder : subLevel.getPlot().getLoadedChunks()) {
+            final LevelChunk plotChunk = holder.getChunk();
+            if (plotChunk == null) continue;
+            final int pcBaseX = plotChunk.getPos().getMinBlockX();
+            final int pcBaseZ = plotChunk.getPos().getMinBlockZ();
+            for (int sIdx = 0; sIdx < plotChunk.getSectionsCount(); sIdx++) {
+                final var section = plotChunk.getSection(sIdx);
+                if (section.hasOnlyAir()) continue;
+                final int pcBaseY = plotChunk.getLevel().getSectionYFromSectionIndex(sIdx) << 4;
+                for (int bx = 0; bx < 16; bx++)
+                    for (int by = 0; by < 16; by++)
+                        for (int bz = 0; bz < 16; bz++) {
+                            if (!section.getBlockState(bx, by, bz).isAir()) {
+                                worldOpaqueInPlot.remove(BlockPos.asLong(pcBaseX + bx, pcBaseY + by, pcBaseZ + bz));
+                            }
+                        }
+            }
+        }
+
+        plotLocalWorldOpaque.put(id, worldOpaqueInPlot);
+    }
+
+    private static void scanOtherSubLevelEmitters(final ServerLevel level, final ServerSubLevel subLevel,
+            final BoundingBox3dc bounds, final int margin, final Long2IntOpenHashMap sources) {
+        final var container = dev.ryanhcode.sable.api.sublevel.SubLevelContainer.getContainer(level);
+        if (container == null) return;
+
+        final Vector3d worldPos = new Vector3d();
+        for (final SubLevel other : container.getAllSubLevels()) {
+            if (other == subLevel || !(other instanceof final ServerSubLevel otherServer)) continue;
+
+            final BoundingBox3dc otherBounds = other.boundingBox();
+            if (otherBounds == null || !boundsOverlap(bounds, otherBounds)) continue;
+
+            final var otherPlot = otherServer.getPlot();
+            if (otherPlot.getBoundingBox() == null) continue;
+
+            final Pose3dc otherPose = other.logicalPose();
+
+            for (final PlotChunkHolder holder : otherPlot.getLoadedChunks()) {
+                final var plotChunk = holder.getChunk();
+                if (plotChunk == null) continue;
+
+                final int baseX = plotChunk.getPos().getMinBlockX();
+                final int baseZ = plotChunk.getPos().getMinBlockZ();
+
+                for (int sIdx = 0; sIdx < plotChunk.getSectionsCount(); sIdx++) {
+                    final var section = plotChunk.getSection(sIdx);
+                    if (section.hasOnlyAir()) continue;
+
+                    final int baseY = plotChunk.getLevel().getSectionYFromSectionIndex(sIdx) << 4;
+
+                    for (int x = 0; x < 16; x++)
+                        for (int y = 0; y < 16; y++)
+                            for (int z = 0; z < 16; z++) {
+                                final int em = section.getBlockState(x, y, z).getLightEmission();
+                                if (em <= 0) continue;
+
+                                worldPos.set(baseX + x + 0.5, baseY + y + 0.5, baseZ + z + 0.5);
+                                otherPose.transformPosition(worldPos);
+
+                                if (worldPos.x >= bounds.minX() - margin && worldPos.x <= bounds.maxX() + margin
+                                        && worldPos.y >= bounds.minY() - margin && worldPos.y <= bounds.maxY() + margin
+                                        && worldPos.z >= bounds.minZ() - margin && worldPos.z <= bounds.maxZ() + margin) {
+                                    final long packed = BlockPos.asLong(
+                                            (int) Math.floor(worldPos.x),
+                                            (int) Math.floor(worldPos.y),
+                                            (int) Math.floor(worldPos.z));
+                                    final int existing = sources.get(packed);
+                                    if (em > existing) sources.put(packed, em);
+                                }
+                            }
+                }
+            }
+        }
     }
 
     private static boolean reinject(final ServerLevel level, final ServerSubLevel subLevel, final ServerLevelPlot plot) {
@@ -339,6 +613,8 @@ public final class ServerSubLevelLightInjector {
 
         return !newPositions.isEmpty();
     }
+
+
 
     private static void markNearbyForRescan(final ServerLevel level, final ServerSubLevel movedSubLevel) {
         final var container = dev.ryanhcode.sable.api.sublevel.SubLevelContainer.getContainer(level);

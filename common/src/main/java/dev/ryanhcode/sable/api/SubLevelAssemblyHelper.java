@@ -115,6 +115,8 @@ public class SubLevelAssemblyHelper {
 
         // Trigger light rescan for the new sub-level so it picks up world light sources
         dev.ryanhcode.sable.render.light_bridge.ServerSubLevelLightInjector.markNeedsFullRescan(subLevel.getUniqueId());
+        dev.ryanhcode.sable.render.light_bridge.ServerSubLevelWorldInjector.markNeedsFullRescan(subLevel.getUniqueId());
+
 
         SubLevelAssemblyHelper.moveTrackingPoints(level, bounds, subLevel, transform);
 
@@ -142,6 +144,8 @@ public class SubLevelAssemblyHelper {
 
         // Trigger light rescan for the new split sub-level so it picks up world light sources
         dev.ryanhcode.sable.render.light_bridge.ServerSubLevelLightInjector.markNeedsFullRescan(subLevel.getUniqueId());
+        dev.ryanhcode.sable.render.light_bridge.ServerSubLevelWorldInjector.markNeedsFullRescan(subLevel.getUniqueId());
+
     }
 
     /**

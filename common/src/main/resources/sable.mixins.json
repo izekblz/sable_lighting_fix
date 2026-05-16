@@ -54,9 +54,7 @@
     "plot.MinecraftMixin",
     "plot.lighting.ClientPacketListenerMixin",
     "plot.lighting.RenderChunkRegionMixin",
-    "plot.lighting.BlockLightEngineMixin",
     "plot.lighting.ClientChunkCacheLightMixin",
-    "plot.lighting.sodium.LevelSliceMixin",
     "punching.MinecraftMixin",
     "punching.MultiPlayerGameModeMixin",
     "respawn_point.sleeping.LivingEntityRendererMixin",
@@ -190,6 +188,8 @@
     "plot.lighting.BlockAndTintGetterMixin",
     "plot.lighting.LevelChunkMixin",
     "plot.lighting.server.ServerChunkCacheLightMixin",
+    "plot.lighting.server.LightEngineOpacityMixin",
+
     "plot.serialization.ChunkMapMixin",
     "plot.serialization.LevelChunkTicksMixin",
     "portal.EntityMixin",

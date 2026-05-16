@@ -36,6 +36,9 @@ accessible field net/minecraft/world/level/lighting/LevelLightEngine blockEngine
 accessible field net/minecraft/world/level/lighting/LevelLightEngine skyEngine Lnet/minecraft/world/level/lighting/LightEngine;
 accessible method net/minecraft/server/level/ThreadedLevelLightEngine runUpdate ()V
 
+# Sable light bridge - access to ThreadedLevelLightEngine task mailbox for plot→world injection
+accessible field net/minecraft/server/level/ThreadedLevelLightEngine taskMailbox Lnet/minecraft/util/thread/ProcessorMailbox;
+
 # Sable light bridge - access to light engine internals for light injection
 accessible field net/minecraft/world/level/lighting/LightEngine storage Lnet/minecraft/world/level/lighting/LayerLightSectionStorage;
 accessible method net/minecraft/world/level/lighting/LayerLightSectionStorage setStoredLevel (JI)V

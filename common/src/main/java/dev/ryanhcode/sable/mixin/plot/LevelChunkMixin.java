@@ -5,6 +5,7 @@ import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import dev.ryanhcode.sable.Sable;
 import dev.ryanhcode.sable.SableCommonEvents;
 import dev.ryanhcode.sable.render.light_bridge.ServerSubLevelLightInjector;
+import dev.ryanhcode.sable.render.light_bridge.ServerSubLevelWorldInjector;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.SubLevel;
 import net.minecraft.core.BlockPos;
@@ -56,12 +57,13 @@ public class LevelChunkMixin {
             if (subLevel != null) {
                 subLevel.getPlot().onBlockChange(this.sable$blockSet, pState);
 
-                // Tell the light injector if a plot block just gained / lost emission so other
-                // sub-levels overlapping this one can be re-scanned.
-                if (this.sable$emissionDirty
-                        && this.level instanceof final ServerLevel serverLevel
+                // Any block change on a plot can affect opacity or emission — always notify world injector.
+                if (this.level instanceof final ServerLevel serverLevel
                         && subLevel instanceof final ServerSubLevel serverSubLevel) {
-                    ServerSubLevelLightInjector.onPlotBlockLightChanged(serverLevel, serverSubLevel);
+                    ServerSubLevelWorldInjector.onPlotBlockChanged(serverSubLevel);
+                    if (this.sable$emissionDirty) {
+                        ServerSubLevelLightInjector.onPlotBlockLightChanged(serverLevel, serverSubLevel);
+                    }
                 }
             }
         }
@@ -90,6 +92,4 @@ public class LevelChunkMixin {
 
         return oldState;
     }
-
-
 }
