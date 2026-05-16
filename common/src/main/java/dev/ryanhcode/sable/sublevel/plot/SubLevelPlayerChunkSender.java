@@ -30,7 +30,8 @@ public class SubLevelPlayerChunkSender {
     }
 
     /**
-     * Sends only light data for a chunk, without resending block data.
+     * Refreshes only the light data for a chunk on a single client, without resending block data.
+     * Used after the plot light engine repropagates to push the new values without triggering a full chunk reload.
      */
     public static void sendLightUpdate(final Consumer<Packet<? super ClientGamePacketListener>> listener, final LevelLightEngine lightEngine, final ChunkPos pos) {
         listener.accept(new ClientboundLightUpdatePacket(pos, lightEngine, null, null));

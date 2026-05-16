@@ -34,8 +34,12 @@ public class LevelChunkMixin {
     @Unique
     private BlockPos sable$blockSet = null;
 
+    /**
+     * Set during {@link #sable$setBlockState} when a block's light emission changes,
+     * read in {@link #sable$postSetBlockState} so we can poke the server-side light injector once.
+     */
     @Unique
-    private boolean sable$lightEmitterChanged = false;
+    private boolean sable$emissionDirty = false;
 
     @Inject(method = "setBlockState", at = @At("HEAD"))
     private void sable$preSetBlockState(final BlockPos pPos, final BlockState pState, final boolean pIsMoving,
@@ -52,15 +56,18 @@ public class LevelChunkMixin {
             if (subLevel != null) {
                 subLevel.getPlot().onBlockChange(this.sable$blockSet, pState);
 
-                if (this.sable$lightEmitterChanged
+                // Tell the light injector if a plot block just gained / lost emission so other
+                // sub-levels overlapping this one can be re-scanned.
+                if (this.sable$emissionDirty
                         && this.level instanceof final ServerLevel serverLevel
                         && subLevel instanceof final ServerSubLevel serverSubLevel) {
                     ServerSubLevelLightInjector.onPlotBlockLightChanged(serverLevel, serverSubLevel);
                 }
             }
         }
+
         this.sable$blockSet = null;
-        this.sable$lightEmitterChanged = false;
+        this.sable$emissionDirty = false;
     }
 
     @WrapOperation(method = "setBlockState", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/chunk/LevelChunkSection;setBlockState(IIILnet/minecraft/world/level/block/state/BlockState;)Lnet/minecraft/world/level/block/state/BlockState;"))
@@ -69,7 +76,7 @@ public class LevelChunkMixin {
 
         if (oldState != newState) {
             if (oldState.getLightEmission() != newState.getLightEmission()) {
-                this.sable$lightEmitterChanged = true;
+                this.sable$emissionDirty = true;
             }
 
             if (this.level instanceof final ServerLevel serverLevel) {

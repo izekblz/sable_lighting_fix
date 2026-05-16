@@ -98,8 +98,10 @@ public class EntitySubLevelUtil {
     }
 
     /**
-     * @deprecated Use {@link dev.ryanhcode.sable.Sable#HELPER} instead. Kept for binary compatibility
-     * with mods compiled against older Sable versions (e.g. Simulated / Create Aeronautics).
+     * Forwards to {@link Sable#HELPER}. Retained so that mods compiled against the old static helper
+     * (Simulated, Create: Aeronautics, ...) keep working without recompiling.
+     *
+     * @deprecated use {@link Sable#HELPER} directly.
      */
     @Deprecated
     public static Vec3 getEyePositionInterpolated(final Entity entity, final float partialTicks) {
@@ -107,7 +109,9 @@ public class EntitySubLevelUtil {
     }
 
     /**
-     * @deprecated Use {@link dev.ryanhcode.sable.Sable#HELPER} instead. Kept for binary compatibility.
+     * Forwards to {@link Sable#HELPER}. See {@link #getEyePositionInterpolated} for the rationale.
+     *
+     * @deprecated use {@link Sable#HELPER} directly.
      */
     @Deprecated
     @Nullable

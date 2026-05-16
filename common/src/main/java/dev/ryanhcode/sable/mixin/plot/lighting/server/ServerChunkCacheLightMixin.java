@@ -12,14 +12,20 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+/**
+ * Forwards server-side block-light updates to the {@link ServerSubLevelLightInjector} so plots
+ * can be re-scanned and reinjected if the change occurred near a sub-level.
+ */
 @Mixin(ServerChunkCache.class)
 public class ServerChunkCacheLightMixin {
 
     @Shadow @Final private ServerLevel level;
 
     @Inject(method = "onLightUpdate", at = @At("RETURN"))
-    private void sable$onServerLightUpdate(final LightLayer type, final SectionPos pos, final CallbackInfo ci) {
-        if (type != LightLayer.BLOCK) return;
+    private void sable$forwardBlockLightUpdate(final LightLayer layer, final SectionPos pos, final CallbackInfo ci) {
+        if (layer != LightLayer.BLOCK) {
+            return;
+        }
 
         ServerSubLevelLightInjector.onServerLightUpdate(this.level, pos.getX(), pos.getY(), pos.getZ());
     }

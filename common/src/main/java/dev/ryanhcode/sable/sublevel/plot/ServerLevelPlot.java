@@ -11,6 +11,7 @@ import dev.ryanhcode.sable.companion.math.BoundingBox3i;
 import dev.ryanhcode.sable.index.SableTags;
 import dev.ryanhcode.sable.mixinterface.plot.serialization.LevelChunkTicksExtension;
 import dev.ryanhcode.sable.platform.SablePlotPlatform;
+import dev.ryanhcode.sable.render.light_bridge.ServerSubLevelLightInjector;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.SubLevel;
 import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
@@ -127,9 +128,9 @@ public class ServerLevelPlot extends LevelPlot {
      */
     @Override
     public void tick() {
-        // Inject external light sources before running light updates
-        dev.ryanhcode.sable.render.light_bridge.ServerSubLevelLightInjector.tickPlot(
-                this.getSubLevel().getLevel(), this.getSubLevel(), this);
+        // Pull in any nearby world emitters before we start propagating.
+        final ServerSubLevel sl = this.getSubLevel();
+        ServerSubLevelLightInjector.tickPlot(sl.getLevel(), sl, this);
 
         do {
             this.lightEngine.runLightUpdates();
@@ -137,9 +138,8 @@ public class ServerLevelPlot extends LevelPlot {
 
         this.contraptions.removeIf(contraption -> !contraption.sable$isValid());
 
-        // Send updated light data to clients after propagation
-        dev.ryanhcode.sable.render.light_bridge.ServerSubLevelLightInjector.afterPlotTick(
-                this.getSubLevel().getLevel(), this.getSubLevel(), this);
+        // Once propagation has settled, ship the resulting light data to tracking players.
+        ServerSubLevelLightInjector.afterPlotTick(sl.getLevel(), sl, this);
     }
 
     /**

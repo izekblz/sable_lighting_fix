@@ -9,19 +9,27 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+/**
+ * Sodium counterpart of {@link dev.ryanhcode.sable.mixin.plot.lighting.BlockLightEngineMixin}:
+ * blends virtual block light into Sodium's per-section brightness lookups.
+ */
 @Mixin(value = LevelSlice.class, remap = false)
 public abstract class LevelSliceMixin {
 
     @Inject(method = "getBrightness", at = @At("RETURN"), cancellable = true, remap = true)
-    private void sable$injectVirtualLight(final LightLayer type, final BlockPos pos, final CallbackInfoReturnable<Integer> cir) {
-        if (type != LightLayer.BLOCK) return;
+    private void sable$overlayVirtualLight(final LightLayer layer, final BlockPos pos, final CallbackInfoReturnable<Integer> cir) {
+        if (layer != LightLayer.BLOCK) {
+            return;
+        }
 
-        final VirtualLightManager vlm = VirtualLightManager.get();
-        if (!vlm.hasAnyLights()) return;
+        final VirtualLightManager manager = VirtualLightManager.get();
+        if (!manager.hasAnyLights()) {
+            return;
+        }
 
-        final int virtualLight = vlm.getVirtualLight(pos);
-        if (virtualLight > cir.getReturnValueI()) {
-            cir.setReturnValue(virtualLight);
+        final int virtual = manager.getVirtualLight(pos);
+        if (virtual > cir.getReturnValueI()) {
+            cir.setReturnValue(virtual);
         }
     }
 }

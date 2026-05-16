@@ -13,8 +13,8 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Intercepts world light updates and notifies sub-levels whose visual bounding
- * box overlaps the changed section, so they rebuild with fresh world light data.
+ * Forwards client-side block-light updates to the {@link VirtualLightManager} so that
+ * sub-levels overlapping the changed section can be re-marked dirty.
  */
 @Mixin(ClientChunkCache.class)
 public class ClientChunkCacheLightMixin {
@@ -22,8 +22,11 @@ public class ClientChunkCacheLightMixin {
     @Shadow @Final private ClientLevel level;
 
     @Inject(method = "onLightUpdate", at = @At("RETURN"))
-    private void sable$onWorldLightUpdate(final LightLayer type, final SectionPos pos, final CallbackInfo ci) {
-        if (type != LightLayer.BLOCK) return;
+    private void sable$forwardBlockLightUpdate(final LightLayer layer, final SectionPos pos, final CallbackInfo ci) {
+        // Only block-light changes affect the virtual light overlay.
+        if (layer != LightLayer.BLOCK) {
+            return;
+        }
 
         VirtualLightManager.get().onWorldLightUpdate(this.level, pos.getX(), pos.getY(), pos.getZ());
     }
