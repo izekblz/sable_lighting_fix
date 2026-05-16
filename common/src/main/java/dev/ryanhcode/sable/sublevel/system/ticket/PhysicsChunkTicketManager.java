@@ -25,7 +25,7 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.NotNull;
 import org.joml.Vector3d;
 
 import java.util.Collection;
@@ -178,7 +178,7 @@ public class PhysicsChunkTicketManager {
                         if (index >= 0 && index < level.getSectionsCount()) {
                             final PhysicsChunkTicket ticket = this.addTicket(level, pipeline, sectionPos, x, y, z, index, gameTime);
 
-                            if (ticket != null && SubLevelPhysicsSystem.USE_TICKETS_FOR_QUERIES) {
+                            if (SubLevelPhysicsSystem.USE_TICKETS_FOR_QUERIES) {
                                 ticket.residentSubLevels().add(subLevel);
                             }
                         }
@@ -188,18 +188,17 @@ public class PhysicsChunkTicketManager {
         }
     }
 
-    private @Nullable PhysicsChunkTicket addTicket(final Level level,
-                                                   final PhysicsPipeline pipeline,
-                                                   final SectionPos sectionPos,
-                                                   final int x,
-                                                   final int y,
-                                                   final int z,
-                                                   final int index,
-                                                   final long gameTime) {
+    private @NotNull PhysicsChunkTicket addTicket(final Level level,
+                                                  final PhysicsPipeline pipeline,
+                                                  final SectionPos sectionPos,
+                                                  final int x,
+                                                  final int y,
+                                                  final int z,
+                                                  final int index,
+                                                  final long gameTime) {
         PhysicsChunkTicket existingTicket = this.physicsChunks.get(sectionPos);
         if (existingTicket == null) {
-            final LevelChunk chunk = level.getChunkSource().getChunkNow(x, z);
-            if (chunk == null) return null;
+            final LevelChunk chunk = level.getChunk(x, z);
 
             pipeline.handleChunkSectionAddition(chunk.getSection(index), x, y, z, false);
 

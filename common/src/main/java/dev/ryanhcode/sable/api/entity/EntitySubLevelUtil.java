@@ -96,26 +96,4 @@ public class EntitySubLevelUtil {
     public static boolean hasCustomEntityOrientation(final Entity entity) {
         return false;
     }
-
-    /**
-     * Forwards to {@link Sable#HELPER}. Retained so that mods compiled against the old static helper
-     * (Simulated, Create: Aeronautics, ...) keep working without recompiling.
-     *
-     * @deprecated use {@link Sable#HELPER} directly.
-     */
-    @Deprecated
-    public static Vec3 getEyePositionInterpolated(final Entity entity, final float partialTicks) {
-        return Sable.HELPER.getEyePositionInterpolated(entity, partialTicks);
-    }
-
-    /**
-     * Forwards to {@link Sable#HELPER}. See {@link #getEyePositionInterpolated} for the rationale.
-     *
-     * @deprecated use {@link Sable#HELPER} directly.
-     */
-    @Deprecated
-    @Nullable
-    public static SubLevel getTrackingSubLevel(final Entity entity) {
-        return Sable.HELPER.getTrackingSubLevel(entity);
-    }
 }
