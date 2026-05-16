@@ -41,7 +41,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class ServerSubLevelWorldInjector {
 
-    private static final double LIGHT_RANGE = 15.0;
+    private static final double LIGHT_MARGIN = 15.0;
 
     private static final ConcurrentHashMap<UUID, LongSet> injectedPositions = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<UUID, Long2IntOpenHashMap> cachedPlotSources = new ConcurrentHashMap<>();
@@ -60,7 +60,6 @@ public final class ServerSubLevelWorldInjector {
     private static volatile LongSet opaquePositions = new LongOpenHashSet();
     /** Opaque positions without gap-fills - used for sub-level-to-sub-level projection. */
     private static volatile LongSet opaquePositionsCore = new LongOpenHashSet();
-    private static volatile LongSet previousOpaquePositions = null;
     private static volatile boolean opaqueDirty = false;
 
     /**
@@ -144,8 +143,8 @@ public final class ServerSubLevelWorldInjector {
         }
 
         // Phase 2: Process updates and collect which sub-levels changed
-        final LongOpenHashSet changedBoundsMinMax = new LongOpenHashSet(); // packed min/max for changed bounds
-        final var changedBounds = new java.util.ArrayList<BoundingBox3dc>(4);
+        final java.util.HashSet<UUID> changedIds = new java.util.HashSet<>();
+        final java.util.ArrayList<BoundingBox3dc> changedBounds = new java.util.ArrayList<>(4);
 
         for (final SubLevel subLevel : allSubLevels) {
             if (!(subLevel instanceof final ServerSubLevel ssl)) continue;
@@ -163,6 +162,7 @@ public final class ServerSubLevelWorldInjector {
 
                 final BoundingBox3dc bounds = ssl.boundingBox();
                 if (bounds != null) {
+                    changedIds.add(id);
                     changedBounds.add(bounds);
                 }
             }
@@ -278,18 +278,8 @@ public final class ServerSubLevelWorldInjector {
         }
 
         // Phase 5: Enqueue reinjections for sub-levels that were scanned in phase 2
-        for (final SubLevel subLevel : allSubLevels) {
-            if (!(subLevel instanceof final ServerSubLevel ssl)) continue;
-            final UUID id = ssl.getUniqueId();
-            final BoundingBox3dc bounds = ssl.boundingBox();
-            if (bounds != null) {
-                for (final BoundingBox3dc changed : changedBounds) {
-                    if (bounds == changed) { // identity check — this is the sub-level that changed
-                        enqueueReinject(level, id);
-                        break;
-                    }
-                }
-            }
+        for (final UUID id : changedIds) {
+            enqueueReinject(level, id);
         }
     }
 
@@ -344,9 +334,9 @@ public final class ServerSubLevelWorldInjector {
     // --- Internal ---
 
     private static boolean boundsOverlap(final BoundingBox3dc a, final BoundingBox3dc b) {
-        return a.maxX() + LIGHT_RANGE >= b.minX() && a.minX() - LIGHT_RANGE <= b.maxX()
-                && a.maxY() + LIGHT_RANGE >= b.minY() && a.minY() - LIGHT_RANGE <= b.maxY()
-                && a.maxZ() + LIGHT_RANGE >= b.minZ() && a.minZ() - LIGHT_RANGE <= b.maxZ();
+        return a.maxX() + LIGHT_MARGIN >= b.minX() && a.minX() - LIGHT_MARGIN <= b.maxX()
+                && a.maxY() + LIGHT_MARGIN >= b.minY() && a.minY() - LIGHT_MARGIN <= b.maxY()
+                && a.maxZ() + LIGHT_MARGIN >= b.minZ() && a.minZ() - LIGHT_MARGIN <= b.maxZ();
     }
 
     private static void detectMovement(final ServerSubLevel subLevel) {
@@ -456,8 +446,7 @@ public final class ServerSubLevelWorldInjector {
                 shapeList.toLongArray(),
                 shapeMaskList.toByteArray()
         ));
-
-            }
+    }
 
     /**
      * Projects cached plot-local data to world space using the current pose. Cheap — just matrix transforms.
@@ -491,9 +480,11 @@ public final class ServerSubLevelWorldInjector {
             }
         }
 
-        // Project opaque: center projection + gap filling (Strategy 7)
+        // Project opaque: project plot-local block centres, then fill any cells along the line between two
+        // adjacent plot-local blocks whose world projections aren't axis-adjacent. Prevents diagonal light
+        // leaks under rotation.
         final LongOpenHashSet opaque = new LongOpenHashSet();
-        // First pass: project centers
+        // First pass: project centres
         final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap plotToWorld = new it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap();
         for (final long plotLocal : cache.opaquePositions) {
             worldPos.set(BlockPos.getX(plotLocal) + 0.5, BlockPos.getY(plotLocal) + 0.5, BlockPos.getZ(plotLocal) + 0.5);
@@ -504,7 +495,6 @@ public final class ServerSubLevelWorldInjector {
         }
         // Save core (no gaps) for sub-level-to-sub-level projection
         perSubLevelOpaqueCore.put(id, new LongOpenHashSet(opaque));
-        dev.ryanhcode.sable.Sable.LOGGER.info("[WorldInjector] projectToWorldSpace {} - core:{} cache.opaque:{}", id, opaque.size(), cache.opaquePositions.length);
         // Second pass: fill gaps between adjacent plot-local blocks
         for (final long plotLocal : cache.opaquePositions) {
             final long wA = plotToWorld.get(plotLocal);

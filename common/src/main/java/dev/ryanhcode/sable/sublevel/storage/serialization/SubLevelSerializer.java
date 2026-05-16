@@ -11,10 +11,9 @@ import dev.ryanhcode.sable.companion.math.JOMLConversion;
 import dev.ryanhcode.sable.companion.math.Pose3d;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.plot.ServerLevelPlot;
-import dev.ryanhcode.sable.sublevel.storage.SubLevelRemovalReason;
 import dev.ryanhcode.sable.render.light_bridge.ServerSubLevelLightInjector;
 import dev.ryanhcode.sable.render.light_bridge.ServerSubLevelWorldInjector;
-
+import dev.ryanhcode.sable.sublevel.storage.SubLevelRemovalReason;
 import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
 import dev.ryanhcode.sable.util.SableNBTUtils;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
@@ -200,7 +199,6 @@ public class SubLevelSerializer {
         // Ensure the light injectors pick up emitters on the next tick.
         ServerSubLevelLightInjector.markNeedsFullRescan(subLevel.getUniqueId());
         ServerSubLevelWorldInjector.markNeedsFullRescan(subLevel.getUniqueId());
-
 
         return subLevel;
     }

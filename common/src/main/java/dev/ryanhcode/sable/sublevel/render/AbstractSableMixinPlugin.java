@@ -36,7 +36,6 @@ public abstract class AbstractSableMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(final String targetClassName, final String mixinClassName) {
-        // TODO: Housekeeping
         if (mixinClassName.startsWith("dev.ryanhcode.sable.mixin.sublevel_render.impl")) {
             return this.sodiumPresent ? mixinClassName.startsWith("dev.ryanhcode.sable.mixin.sublevel_render.impl.sodium") : mixinClassName.startsWith("dev.ryanhcode.sable.mixin.sublevel_render.impl.vanilla");
         }

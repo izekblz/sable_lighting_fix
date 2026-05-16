@@ -2,9 +2,8 @@ package dev.ryanhcode.sable.api.sublevel;
 
 
 import dev.ryanhcode.sable.Sable;
-import dev.ryanhcode.sable.render.light_bridge.ServerSubLevelWorldInjector;
-
 import dev.ryanhcode.sable.companion.math.Pose3d;
+import dev.ryanhcode.sable.render.light_bridge.ServerSubLevelWorldInjector;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.SubLevel;
 import dev.ryanhcode.sable.sublevel.storage.SubLevelOccupancySavedData;
@@ -74,7 +73,6 @@ public class ServerSubLevelContainer extends SubLevelContainer {
     public void tick() {
         super.tick();
         ServerSubLevelWorldInjector.tick(this.getLevel());
-
         this.holdingChunkMap.processChanges();
     }
 
@@ -125,7 +123,6 @@ public class ServerSubLevelContainer extends SubLevelContainer {
         }
 
         ServerSubLevelWorldInjector.onSubLevelRemoved(this.getLevel(), subLevel.getUniqueId());
-
 
         super.removeSubLevel(x, z, reason);
 

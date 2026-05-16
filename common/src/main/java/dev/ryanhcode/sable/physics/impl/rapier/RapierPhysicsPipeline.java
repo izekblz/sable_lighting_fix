@@ -460,7 +460,6 @@ public class RapierPhysicsPipeline implements PhysicsPipeline {
             final LevelChunk chunk = this.accelerator.getChunk(x, z);
             if (chunk == null) return;
 
-
             for (int bx = 0; bx < 16; bx++) {
                 for (int bz = 0; bz < 16; bz++) {
                     for (int by = 0; by < 16; by++) {

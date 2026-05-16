@@ -117,7 +117,6 @@ public class SubLevelAssemblyHelper {
         dev.ryanhcode.sable.render.light_bridge.ServerSubLevelLightInjector.markNeedsFullRescan(subLevel.getUniqueId());
         dev.ryanhcode.sable.render.light_bridge.ServerSubLevelWorldInjector.markNeedsFullRescan(subLevel.getUniqueId());
 
-
         SubLevelAssemblyHelper.moveTrackingPoints(level, bounds, subLevel, transform);
 
         return subLevel;
@@ -145,7 +144,6 @@ public class SubLevelAssemblyHelper {
         // Trigger light rescan for the new split sub-level so it picks up world light sources
         dev.ryanhcode.sable.render.light_bridge.ServerSubLevelLightInjector.markNeedsFullRescan(subLevel.getUniqueId());
         dev.ryanhcode.sable.render.light_bridge.ServerSubLevelWorldInjector.markNeedsFullRescan(subLevel.getUniqueId());
-
     }
 
     /**
@@ -368,7 +366,6 @@ public class SubLevelAssemblyHelper {
                 final LevelChunk chunk = resultingAccelerator.getChunk(SectionPos.blockToSectionCoord(newPos.getX()), SectionPos.blockToSectionCoord(newPos.getZ()));
                 if (chunk == null) continue;
 
-
                 chunk.setBlockState(newPos, subLevelState, true);
                 states.add(subLevelState);
 
@@ -394,7 +391,6 @@ public class SubLevelAssemblyHelper {
             try {
                 final LevelChunk levelchunk = resultingAccelerator.getChunk(SectionPos.blockToSectionCoord(pos.getX()), SectionPos.blockToSectionCoord(pos.getZ()));
                 if (levelchunk == null) continue;
-
                 final BlockState subLevelState = states.get(i);
                 SubLevelAssemblyHelper.markAndNotifyBlock(resultingLevel, pos, levelchunk, Blocks.AIR.defaultBlockState(), subLevelState, 3, 512);
             } catch (final Exception e) {
@@ -413,7 +409,6 @@ public class SubLevelAssemblyHelper {
                 final LevelChunk chunk = accelerator.getChunk(SectionPos.blockToSectionCoord(block.getX()),
                         SectionPos.blockToSectionCoord(block.getZ()));
                 if (chunk == null) continue;
-
 
                 chunk.setBlockState(block, subLevelState, true);
             } catch (final Exception e) {
